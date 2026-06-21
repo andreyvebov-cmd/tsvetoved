@@ -8,7 +8,6 @@
 *{margin:0;padding:0;box-sizing:border-box}
 html,body{width:100%;height:100%;overflow:hidden;background:#0d0d1a}
 canvas{display:block;width:100%;height:100%;cursor:crosshair}
-
 #loupe{
     position:fixed;pointer-events:none;z-index:100;
     opacity:0;transition:opacity 0.1s;
@@ -33,22 +32,12 @@ canvas{display:block;width:100%;height:100%;cursor:crosshair}
     min-width:200px;text-align:center;
 }
 #loupe-info .row{display:flex;align-items:center;gap:10px;justify-content:center;margin-bottom:4px}
-#loupe-info .swatch{
-    width:24px;height:24px;border-radius:5px;
-    border:1px solid rgba(255,255,255,0.1);flex-shrink:0
-}
-#loupe-info .hex{
-    font-size:17px;font-weight:700;
-    font-family:'SF Mono','Consolas','Courier New',monospace;
-    color:#fff;letter-spacing:0.3px
-}
-#loupe-info .clr-name{
-    font-size:14px;color:#b9b;font-weight:500;margin-bottom:3px
-}
+#loupe-info .swatch{width:24px;height:24px;border-radius:5px;border:1px solid rgba(255,255,255,0.1);flex-shrink:0}
+#loupe-info .hex{font-size:17px;font-weight:700;font-family:'SF Mono','Consolas','Courier New',monospace;color:#fff;letter-spacing:0.3px}
+#loupe-info .clr-name{font-size:14px;color:#b9b;font-weight:500;margin-bottom:3px}
 #loupe-info .desc{font-size:13px;color:#99a;line-height:1.4}
 #loupe-info .desc .cn{color:#ccd;font-weight:500}
 #loupe-info .rgb-s{font-size:11px;color:#556;margin-top:2px;font-family:'SF Mono','Consolas',monospace}
-
 #toolbar{
     position:fixed;bottom:20px;left:50%;transform:translateX(-50%);
     display:flex;gap:8px;z-index:50;flex-wrap:wrap;justify-content:center
@@ -79,261 +68,51 @@ canvas{display:block;width:100%;height:100%;cursor:crosshair}
 </style>
 </head>
 <body>
-
 <canvas id="canvas"></canvas>
-
 <div id="loupe">
-    <div id="zoom-wrap">
-        <canvas id="zoom-canvas"></canvas>
-    </div>
+    <div id="zoom-wrap"><canvas id="zoom-canvas"></canvas></div>
     <div id="loupe-info">
-        <div class="row">
-            <div class="swatch" id="swatch"></div>
-            <div class="hex" id="hex"></div>
-        </div>
+        <div class="row"><div class="swatch" id="swatch"></div><div class="hex" id="hex"></div></div>
         <div class="clr-name" id="clr-name"></div>
         <div class="desc" id="desc"></div>
         <div class="rgb-s" id="rgb-line"></div>
     </div>
 </div>
-
 <div id="status">Наведите на картинку · Загрузите или перетащите изображение</div>
-
 <div id="toolbar">
     <label id="file-label" for="file-input">📁 Загрузить картинку</label>
     <input type="file" id="file-input" accept="image/*">
     <button id="reset-btn">🎨 Градиент</button>
 </div>
-
 <script>
-const canvas = document.getElementById('canvas');
-const ctx = canvas.getContext('2d', { willReadFrequently: true });
-const zoomCanvas = document.getElementById('zoom-canvas');
-const zoomCtx = zoomCanvas.getContext('2d');
-const loupe = document.getElementById('loupe');
-const swatch = document.getElementById('swatch');
-const hexEl = document.getElementById('hex');
-const descEl = document.getElementById('desc');
-const clrNameEl = document.getElementById('clr-name');
-const rgbLine = document.getElementById('rgb-line');
-const statusEl = document.getElementById('status');
-const fileInput = document.getElementById('file-input');
-const resetBtn = document.getElementById('reset-btn');
-
-let imageLoaded = false;
-let currentImage = null;
-let animFrame = null;
-let imageDisplayRect = null;
-
-const ZOOM = 8;
-const GRID = 20;
-const BLOCK = ZOOM;
-
-const namedColors = [
-    {name:'чёрный',r:0,g:0,b:0},{name:'антрацит',r:42,g:44,b:48},
-    {name:'тёмно-серый',r:80,g:80,b:80},{name:'серый',r:130,g:130,b:130},
-    {name:'светло-серый',r:192,g:192,b:192},{name:'белый',r:255,g:255,b:255},
-    {name:'слоновая кость',r:255,g:250,b:235},{name:'айвори',r:255,g:255,b:210},
-    {name:'красный',r:220,g:30,b:30},{name:'алый',r:255,g:50,b:0},
-    {name:'кармин',r:175,g:0,b:30},{name:'бордовый',r:125,g:0,b:0},
-    {name:'вишнёвый',r:150,g:20,b:45},{name:'розовый',r:255,g:175,b:190},
-    {name:'фуксия',r:255,g:0,b:130},{name:'малиновый',r:200,g:20,b:80},
-    {name:'коралловый',r:255,g:120,b:80},{name:'персиковый',r:255,g:215,b:180},
-    {name:'оранжевый',r:255,g:160,b:0},{name:'охра',r:200,g:130,b:40},
-    {name:'терракотовый',r:220,g:120,b:75},{name:'жёлтый',r:255,g:255,b:0},
-    {name:'золотой',r:255,g:210,b:0},{name:'лимонный',r:230,g:255,b:0},
-    {name:'бежевый',r:245,g:240,b:220},{name:'кремовый',r:255,g:250,b:210},
-    {name:'хаки',r:190,g:175,b:140},{name:'оливковый',r:130,g:130,b:0},
-    {name:'салатовый',r:140,g:210,b:60},{name:'зелёный',r:50,g:160,b:50},
-    {name:'изумрудный',r:40,g:180,b:90},{name:'мятный',r:100,g:220,b:160},
-    {name:'бирюзовый',r:40,g:200,b:190},{name:'аквамарин',r:110,g:235,b:205},
-    {name:'голубой',r:170,g:215,b:240},{name:'лазурный',r:30,g:130,b:220},
-    {name:'синий',r:30,g:60,b:220},{name:'ультрамарин',r:25,g:25,b:160},
-    {name:'церелиум',r:0,g:125,b:170},{name:'васильковый',r:100,g:140,b:230},
-    {name:'индиго',r:70,g:0,b:130},{name:'фиолетовый',r:150,g:50,b:200},
-    {name:'пурпурный',r:130,g:0,b:130},{name:'сиреневый',r:200,g:160,b:200},
-    {name:'лавандовый',r:210,g:200,b:240},{name:'шоколадный',r:200,g:120,b:50},
-    {name:'коричневый',r:140,g:80,b:40},{name:'каштановый',r:120,g:70,b:50},
-    {name:'песочный',r:220,g:190,b:140},{name:'светло-бежевый',r:235,g:225,b:195},
-];
-
-function findClosestColor(r,g,b){
-    let min=Infinity,best=namedColors[0];
-    for(const c of namedColors){
-        const d=(c.r-r)**2+(c.g-g)**2+(c.b-b)**2;
-        if(d<min){min=d;best=c;}
-    }
-    return best;
-}
-
-function hslToRgb(h,s,l){
-    h/=360;s/=100;l/=100;
-    if(s===0)return[Math.round(l*255),Math.round(l*255),Math.round(l*255)];
-    const q=l<0.5?l*(1+s):l+s-l*s,p=2*l-q;
-    const hue2rgb=(p,q,t)=>{if(t<0)t+=1;if(t>1)t-=1;if(t<1/6)return p+(q-p)*6*t;if(t<1/2)return q;if(t<2/3)return p+(q-p)*(2/3-t)*6;return p};
-    return[Math.round(hue2rgb(p,q,h+1/3)*255),Math.round(hue2rgb(p,q,h)*255),Math.round(hue2rgb(p,q,h-1/3)*255)];
-}
-
-function drawGradient(){
-    const w=canvas.width,h=canvas.height;imageLoaded=false;imageDisplayRect=null;
-    const bands=120;
-    for(let i=0;i<bands;i++){
-        const hue=(i/bands)*360,x1=Math.floor((i/bands)*w),x2=Math.ceil(((i+1)/bands)*w);
-        const g=ctx.createLinearGradient(x1,0,x2,0);
-        const[r1,g1,b1]=hslToRgb(hue,100,50),[r2,g2,b2]=hslToRgb(hue+360/bands,100,50);
-        g.addColorStop(0,`rgb(${r1},${g1},${b1})`);g.addColorStop(1,`rgb(${r2},${g2},${b2})`);
-        ctx.fillStyle=g;ctx.fillRect(x1,0,x2-x1+1,h);
-    }
-    const d=ctx.createLinearGradient(0,0,0,h);
-    d.addColorStop(0,'rgba(0,0,0,0.75)');d.addColorStop(0.35,'rgba(0,0,0,0)');
-    d.addColorStop(0.65,'rgba(255,255,255,0)');d.addColorStop(1,'rgba(255,255,255,0.75)');
-    ctx.fillStyle=d;ctx.fillRect(0,0,w,h);
-}
-
-function drawImageOnCanvas(img){
-    const dpr=window.devicePixelRatio||1;
-    const cw=window.innerWidth,ch=window.innerHeight;
-    const iw=img.naturalWidth,ih=img.naturalHeight;
-    const scale=Math.min(cw/iw,ch/ih,1);
-    const dw=iw*scale,dh=ih*scale;
-    const dx=(cw-dw)/2,dy=(ch-dh)/2;
-
-    ctx.fillStyle='#14141e';ctx.fillRect(0,0,cw*dpr,ch*dpr);
-    ctx.save();ctx.scale(dpr,dpr);
-    ctx.drawImage(img,dx,dy,dw,dh);
-    ctx.restore();
-
-    imageDisplayRect={x:dx,y:dy,w:dw,h:dh,scale:scale};
-    return imageDisplayRect;
-}
-
-function resizeCanvas(){
-    const dpr=window.devicePixelRatio||1;
-    const w=window.innerWidth,h=window.innerHeight;
-    canvas.width=w*dpr;canvas.height=h*dpr;
-    canvas.style.width=w+'px';canvas.style.height=h+'px';
-    ctx.setTransform(dpr,0,0,dpr,0,0);
-    if(!imageLoaded||!currentImage)drawGradient();
-    else drawImageOnCanvas(currentImage);
-}
-
-function loadImageFile(file){
-    const r=new FileReader();
-    r.onload=function(e){
-        const img=new Image();
-        img.onload=function(){
-            currentImage=img;imageLoaded=true;
-            drawImageOnCanvas(img);
-            statusEl.style.opacity='0';
-        };
-        img.src=e.target.result;
-    };
-    r.readAsDataURL(file);
-}
-
-function describeColor(r,g,b){
-    const hex='#'+[r,g,b].map(v=>v.toString(16).padStart(2,'0').toUpperCase()).join('');
-    if(r===0&&g===0&&b===0)return{hex,desc:'чёрный 100%'};
-    if(r===g&&g===b){
-        const p=Math.round(r/255*100);
-        if(r<20)return{hex,desc:`чёрный ${100-p}%`};
-        if(r>235)return{hex,desc:`белый ${p}%`};
-        return{hex,desc:`серый ${p}%`};
-    }
-    const w=Math.min(r,g,b),r1=r-w,g1=g-w,b1=b-w,t=w+r1+g1+b1;
-    const p=[];
-    if(w>0){const x=Math.round(w/t*100);if(x>0)p.push(x+'% <span class="cn">белый</span>')}
-    if(r1>0){const x=Math.round(r1/t*100);if(x>0)p.push(x+'% <span class="cn">красный</span>')}
-    if(g1>0){const x=Math.round(g1/t*100);if(x>0)p.push(x+'% <span class="cn">зелёный</span>')}
-    if(b1>0){const x=Math.round(b1/t*100);if(x>0)p.push(x+'% <span class="cn">синий</span>')}
-    return{hex,desc:p.join(' + ')};
-}
-
-function getPixelColor(cx,cy){
-    const dpr=window.devicePixelRatio||1;
-    const px=Math.round(cx*dpr),py=Math.round(cy*dpr);
-    if(px<0||py<0||px>=canvas.width||py>=canvas.height)return null;
-    const d=ctx.getImageData(px,py,1,1).data;
-    return{r:d[0],g:d[1],b:d[2]};
-}
-
-function drawLoupe(cx,cy){
-    const dpr=window.devicePixelRatio||1;
-    const pcx=Math.round(cx*dpr),pcy=Math.round(cy*dpr);
-    const half=Math.floor(GRID/2);
-    let sx=pcx-half,sy=pcy-half;
-    sx=Math.max(0,Math.min(canvas.width-GRID,sx));
-    sy=Math.max(0,Math.min(canvas.height-GRID,sy));
-
-    const data=ctx.getImageData(sx,sy,GRID,GRID).data;
-    zoomCanvas.width=GRID*BLOCK;zoomCanvas.height=GRID*BLOCK;
-    for(let row=0;row<GRID;row++){
-        for(let col=0;col<GRID;col++){
-            const i=(row*GRID+col)*4;
-            zoomCtx.fillStyle=`rgb(${data[i]},${data[i+1]},${data[i+2]})`;
-            zoomCtx.fillRect(col*BLOCK,row*BLOCK,BLOCK,BLOCK);
-        }
-    }
-    const cx2=half*BLOCK,cy2=half*BLOCK;
-    zoomCtx.strokeStyle='rgba(255,255,255,0.7)';zoomCtx.lineWidth=1.5;
-    zoomCtx.beginPath();zoomCtx.moveTo(cx2,0);zoomCtx.lineTo(cx2,zoomCanvas.height);zoomCtx.stroke();
-    zoomCtx.beginPath();zoomCtx.moveTo(0,cy2);zoomCtx.lineTo(zoomCanvas.width,cy2);zoomCtx.stroke();
-    zoomCtx.strokeStyle='rgba(0,0,0,0.5)';zoomCtx.lineWidth=1;
-    zoomCtx.strokeRect(cx2-BLOCK/2,cy2-BLOCK/2,BLOCK,BLOCK);
-
-    return{sx,sy};
-}
-
-function updateOverlay(x,y){
-    const color=getPixelColor(x,y);
-    if(!color){loupe.classList.remove('show');return;}
-    const{r,g,b}=color,{hex,desc}=describeColor(r,g,b);
-    const near=findClosestColor(r,g,b);
-
-    swatch.style.background=hex;
-    hexEl.textContent=hex.toLowerCase();
-    clrNameEl.textContent='\u2192 '+near.name;
-    descEl.innerHTML=desc;
-    rgbLine.textContent='R:'+r+' G:'+g+' B:'+b;
-
-    drawLoupe(x,y);
-
-    const lw=220,pad=24;
-    let tx=x+20,ty=y+20;
-    if(tx+220+pad>window.innerWidth)tx=x-220-pad;
-    if(ty+300+pad>window.innerHeight)ty=y-300-pad;
-    if(tx<pad)tx=pad;if(ty<pad)ty=pad;
-    loupe.style.left=tx+'px';loupe.style.top=ty+'px';
-    loupe.classList.add('show');
-}
-
-canvas.addEventListener('mousemove',function(e){
-    if(animFrame)cancelAnimationFrame(animFrame);
-    animFrame=requestAnimationFrame(()=>updateOverlay(e.clientX,e.clientY));
-});
-
-canvas.addEventListener('mouseleave',function(){loupe.classList.remove('show');});
-
-fileInput.addEventListener('change',function(e){
-    if(e.target.files&&e.target.files[0])loadImageFile(e.target.files[0]);
-    this.value='';
-});
-
-resetBtn.addEventListener('click',function(){
-    currentImage=null;imageLoaded=false;drawGradient();
-    statusEl.style.opacity='1';
-});
-
-canvas.addEventListener('dragover',function(e){e.preventDefault();canvas.style.opacity='0.7';});
-canvas.addEventListener('dragleave',function(e){e.preventDefault();canvas.style.opacity='1';});
-canvas.addEventListener('drop',function(e){
-    e.preventDefault();canvas.style.opacity='1';
-    const f=e.dataTransfer.files[0];
-    if(f&&f.type.startsWith('image/'))loadImageFile(f);
-});
-
-window.addEventListener('resize',resizeCanvas);
-resizeCanvas();
+const canvas=document.getElementById('canvas'),ctx=canvas.getContext('2d',{willReadFrequently:true});
+const zc=document.getElementById('zoom-canvas'),zctx=zc.getContext('2d');
+const loupe=document.getElementById('loupe'),sw=document.getElementById('swatch'),hx=document.getElementById('hex');
+const de=document.getElementById('desc'),cn=document.getElementById('clr-name'),rb=document.getElementById('rgb-line');
+const st=document.getElementById('status'),fi=document.getElementById('file-input'),rb2=document.getElementById('reset-btn');
+let loaded=false,img=null,af=null,rect=null;
+const Z=8,G=20,B=Z;
+const NC=[{n:'чёрный',r:0,g:0,b:0},{n:'антрацит',r:42,g:44,b:48},{n:'тёмно-серый',r:80,g:80,b:80},{n:'серый',r:130,g:130,b:130},{n:'светло-серый',r:192,g:192,b:192},{n:'белый',r:255,g:255,b:255},{n:'слоновая кость',r:255,g:250,b:235},{n:'айвори',r:255,g:255,b:210},{n:'красный',r:220,g:30,b:30},{n:'алый',r:255,g:50,b:0},{n:'кармин',r:175,g:0,b:30},{n:'бордовый',r:125,g:0,b:0},{n:'вишнёвый',r:150,g:20,b:45},{n:'розовый',r:255,g:175,b:190},{n:'фуксия',r:255,g:0,b:130},{n:'малиновый',r:200,g:20,b:80},{n:'коралловый',r:255,g:120,b:80},{n:'персиковый',r:255,g:215,b:180},{n:'оранжевый',r:255,g:160,b:0},{n:'охра',r:200,g:130,b:40},{n:'терракотовый',r:220,g:120,b:75},{n:'жёлтый',r:255,g:255,b:0},{n:'золотой',r:255,g:210,b:0},{n:'лимонный',r:230,g:255,b:0},{n:'бежевый',r:245,g:240,b:220},{n:'кремовый',r:255,g:250,b:210},{n:'хаки',r:190,g:175,b:140},{n:'оливковый',r:130,g:130,b:0},{n:'салатовый',r:140,g:210,b:60},{n:'зелёный',r:50,g:160,b:50},{n:'изумрудный',r:40,g:180,b:90},{n:'мятный',r:100,g:220,b:160},{n:'бирюзовый',r:40,g:200,b:190},{n:'аквамарин',r:110,g:235,b:205},{n:'голубой',r:170,g:215,b:240},{n:'лазурный',r:30,g:130,b:220},{n:'синий',r:30,g:60,b:220},{n:'ультрамарин',r:25,g:25,b:160},{n:'церелиум',r:0,g:125,b:170},{n:'васильковый',r:100,g:140,b:230},{n:'индиго',r:70,g:0,b:130},{n:'фиолетовый',r:150,g:50,b:200},{n:'пурпурный',r:130,g:0,b:130},{n:'сиреневый',r:200,g:160,b:200},{n:'лавандовый',r:210,g:200,b:240},{n:'шоколадный',r:200,g:120,b:50},{n:'коричневый',r:140,g:80,b:40},{n:'каштановый',r:120,g:70,b:50},{n:'песочный',r:220,g:190,b:140},{n:'светло-бежевый',r:235,g:225,b:195}];
+function closest(r,g,b){let m=Infinity,best=NC[0];for(const c of NC){const d=(c.r-r)**2+(c.g-g)**2+(c.b-b)**2;if(d<m){m=d;best=c}}return best}
+function hsl(h,s,l){h/=360;s/=100;l/=100;if(s===0)return[Math.round(l*255)];const q=l<.5?l*(1+s):l+s-l*s,p=2*l-q;const h2=(p,q,t)=>{if(t<0)t+=1;if(t>1)t-=1;if(t<1/6)return p+(q-p)*6*t;if(t<.5)return q;if(t<2/3)return p+(q-p)*(2/3-t)*6;return p};return[Math.round(h2(p,q,h+1/3)*255),Math.round(h2(p,q,h)*255),Math.round(h2(p,q,h-1/3)*255)]}
+function grad(){const w=innerWidth,h=innerHeight;loaded=false;rect=null;for(let i=0;i<120;i++){const hue=i/120*360,x1=Math.floor(i/120*w),x2=Math.ceil((i+1)/120*w),g=ctx.createLinearGradient(x1,0,x2,0);const[r1,g1,b1]=hsl(hue,100,50),[r2,g2,b2]=hsl(hue+3,100,50);g.addColorStop(0,`rgb(${r1},${g1},${b1})`);g.addColorStop(1,`rgb(${r2},${g2},${b2})`);ctx.fillStyle=g;ctx.fillRect(x1,0,x2-x1+1,h)}const d=ctx.createLinearGradient(0,0,0,h);d.addColorStop(0,'rgba(0,0,0,.75)');d.addColorStop(.35,'rgba(0,0,0,0)');d.addColorStop(.65,'rgba(255,255,255,0)');d.addColorStop(1,'rgba(255,255,255,.75)');ctx.fillStyle=d;ctx.fillRect(0,0,w,h)}
+function drawImg(i){const cw=innerWidth,ch=innerHeight,iw=i.naturalWidth,ih=i.naturalHeight,s=Math.min(cw/iw,ch/ih,1),dw=iw*s,dh=ih*s,dx=(cw-dw)/2,dy=(ch-dh)/2;ctx.fillStyle='#14141e';ctx.fillRect(0,0,cw,ch);ctx.drawImage(i,dx,dy,dw,dh);rect={x:dx,y:dy,w:dw,h:dh,scale:s}}
+function resize(){const dpr=devicePixelRatio||1,w=innerWidth,h=innerHeight;canvas.width=w*dpr;canvas.height=h*dpr;canvas.style.width=w+'px';canvas.style.height=h+'px';ctx.setTransform(dpr,0,0,dpr,0,0);if(!loaded||!img)grad();else drawImg(img)}
+function load(f){const r=new FileReader();r.onload=function(e){const i=new Image();i.onload=function(){img=i;loaded=true;drawImg(i);st.style.opacity='0'};i.src=e.target.result};r.readAsDataURL(f)}
+function desc(r,g,b){const hex='#'+[r,g,b].map(v=>v.toString(16).padStart(2,'0').toUpperCase()).join('');if(r===0&&g===0&&b===0)return{hex,desc:'чёрный 100%'};if(r===g&&g===b){const p=Math.round(r/255*100);if(r<20)return{hex,desc:`чёрный ${100-p}%`};if(r>235)return{hex,desc:`белый ${p}%`};return{hex,desc:`серый ${p}%`}}const w=Math.min(r,g,b),r1=r-w,g1=g-w,b1=b-w,t=w+r1+g1+b1;const p=[];if(w>0){const x=Math.round(w/t*100);if(x>0)p.push(x+'% <span class="cn">белый</span>')}if(r1>0){const x=Math.round(r1/t*100);if(x>0)p.push(x+'% <span class="cn">красный</span>')}if(g1>0){const x=Math.round(g1/t*100);if(x>0)p.push(x+'% <span class="cn">зелёный</span>')}if(b1>0){const x=Math.round(b1/t*100);if(x>0)p.push(x+'% <span class="cn">синий</span>')}return{hex,desc:p.join(' + ')}}
+function pixel(cx,cy){const dpr=devicePixelRatio||1,px=Math.round(cx*dpr),py=Math.round(cy*dpr);if(px<0||py<0||px>=canvas.width||py>=canvas.height)return null;const d=ctx.getImageData(px,py,1,1).data;return{r:d[0],g:d[1],b:d[2]}}
+function loupeDraw(cx,cy){const dpr=devicePixelRatio||1,pcx=Math.round(cx*dpr),pcy=Math.round(cy*dpr),half=Math.floor(G/2);let sx=pcx-half,sy=pcy-half;sx=Math.max(0,Math.min(canvas.width-G,sx));sy=Math.max(0,Math.min(canvas.height-G,sy));const data=ctx.getImageData(sx,sy,G,G).data;zc.width=G*B;zc.height=G*B;for(let r=0;r<G;r++){for(let c=0;c<G;c++){const i=(r*G+c)*4;zctx.fillStyle=`rgb(${data[i]},${data[i+1]},${data[i+2]})`;zctx.fillRect(c*B,r*B,B,B)}}const cx2=half*B,cy2=half*B;zctx.strokeStyle='rgba(255,255,255,.7)';zctx.lineWidth=1.5;zctx.beginPath();zctx.moveTo(cx2,0);zctx.lineTo(cx2,zc.height);zctx.stroke();zctx.beginPath();zctx.moveTo(0,cy2);zctx.lineTo(zc.width,cy2);zctx.stroke();zctx.strokeStyle='rgba(0,0,0,.5)';zctx.lineWidth=1;zctx.strokeRect(cx2-B/2,cy2-B/2,B,B)}
+function update(x,y){const c=pixel(x,y);if(!c){loupe.classList.remove('show');return}const{r,g,b}=c,{hex,desc:d}=desc(r,g,b),near=closest(r,g,b);sw.style.background=hex;hx.textContent=hex.toLowerCase();cn.textContent='→ '+near.n;de.innerHTML=d;rb.textContent='R:'+r+' G:'+g+' B:'+b;loupeDraw(x,y);let tx=x+20,ty=y+20;if(tx+220+24>innerWidth)tx=x-220-24;if(ty+300+24>innerHeight)ty=y-300-24;if(tx<24)tx=24;if(ty<24)ty=24;loupe.style.left=tx+'px';loupe.style.top=ty+'px';loupe.classList.add('show')}
+canvas.addEventListener('mousemove',function(e){if(af)cancelAnimationFrame(af);af=requestAnimationFrame(()=>update(e.clientX,e.clientY))});
+canvas.addEventListener('mouseleave',function(){loupe.classList.remove('show')});
+canvas.addEventListener('touchmove',function(e){e.preventDefault();const t=e.touches[0];update(t.clientX,t.clientY)},{passive:false});
+canvas.addEventListener('touchend',function(){loupe.classList.remove('show')});
+fi.addEventListener('change',function(e){if(e.target.files&&e.target.files[0])load(e.target.files[0]);this.value=''});
+rb2.addEventListener('click',function(){img=null;loaded=false;grad();st.style.opacity='1'});
+canvas.addEventListener('dragover',function(e){e.preventDefault();canvas.style.opacity='.7'});
+canvas.addEventListener('dragleave',function(e){e.preventDefault();canvas.style.opacity='1'});
+canvas.addEventListener('drop',function(e){e.preventDefault();canvas.style.opacity='1';const f=e.dataTransfer.files[0];if(f&&f.type.startsWith('image/'))load(f)});
+window.addEventListener('resize',resize);resize();
 </script>
 </body>
 </html>
