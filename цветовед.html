@@ -1,0 +1,339 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Цветовед</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{width:100%;height:100%;overflow:hidden;background:#0d0d1a}
+canvas{display:block;width:100%;height:100%;cursor:crosshair}
+
+#loupe{
+    position:fixed;pointer-events:none;z-index:100;
+    opacity:0;transition:opacity 0.1s;
+    display:flex;flex-direction:column;align-items:center;
+    font-family:system-ui,'Segoe UI',sans-serif;
+}
+#loupe.show{opacity:1}
+#zoom-wrap{
+    border-radius:50%;overflow:hidden;
+    border:2px solid rgba(255,255,255,0.2);
+    box-shadow:0 4px 30px rgba(0,0,0,0.7);
+    width:160px;height:160px;position:relative;
+    background:#0d0d1a;
+}
+#zoom-canvas{width:100%;height:100%;display:block}
+#loupe-info{
+    margin-top:8px;
+    background:rgba(16,16,28,0.92);
+    backdrop-filter:blur(10px);
+    border:1px solid rgba(255,255,255,0.08);
+    border-radius:10px;padding:10px 14px;
+    min-width:200px;text-align:center;
+}
+#loupe-info .row{display:flex;align-items:center;gap:10px;justify-content:center;margin-bottom:4px}
+#loupe-info .swatch{
+    width:24px;height:24px;border-radius:5px;
+    border:1px solid rgba(255,255,255,0.1);flex-shrink:0
+}
+#loupe-info .hex{
+    font-size:17px;font-weight:700;
+    font-family:'SF Mono','Consolas','Courier New',monospace;
+    color:#fff;letter-spacing:0.3px
+}
+#loupe-info .clr-name{
+    font-size:14px;color:#b9b;font-weight:500;margin-bottom:3px
+}
+#loupe-info .desc{font-size:13px;color:#99a;line-height:1.4}
+#loupe-info .desc .cn{color:#ccd;font-weight:500}
+#loupe-info .rgb-s{font-size:11px;color:#556;margin-top:2px;font-family:'SF Mono','Consolas',monospace}
+
+#toolbar{
+    position:fixed;bottom:20px;left:50%;transform:translateX(-50%);
+    display:flex;gap:8px;z-index:50;flex-wrap:wrap;justify-content:center
+}
+#toolbar button,#file-label{
+    padding:9px 18px;border-radius:10px;
+    background:rgba(255,255,255,0.06);
+    border:1px solid rgba(255,255,255,0.1);
+    color:#bbb;font-size:13px;cursor:pointer;
+    font-family:inherit;transition:all 0.2s;white-space:nowrap
+}
+#toolbar button:hover,#file-label:hover{background:rgba(255,255,255,0.12);color:#fff}
+#file-input{display:none}
+#status{
+    position:fixed;top:16px;left:50%;transform:translateX(-50%);
+    color:rgba(255,255,255,0.2);font-size:13px;z-index:50;
+    pointer-events:none;font-family:system-ui,sans-serif;
+    text-align:center;transition:opacity 0.3s
+}
+@media(max-width:640px){
+    #zoom-wrap{width:120px;height:120px}
+    #loupe-info{padding:8px 10px;min-width:160px}
+    #loupe-info .hex{font-size:14px}
+    #loupe-info .desc{font-size:12px}
+    #toolbar{bottom:10px}
+    #toolbar button,#file-label{padding:6px 10px;font-size:11px}
+}
+</style>
+</head>
+<body>
+
+<canvas id="canvas"></canvas>
+
+<div id="loupe">
+    <div id="zoom-wrap">
+        <canvas id="zoom-canvas"></canvas>
+    </div>
+    <div id="loupe-info">
+        <div class="row">
+            <div class="swatch" id="swatch"></div>
+            <div class="hex" id="hex"></div>
+        </div>
+        <div class="clr-name" id="clr-name"></div>
+        <div class="desc" id="desc"></div>
+        <div class="rgb-s" id="rgb-line"></div>
+    </div>
+</div>
+
+<div id="status">Наведите на картинку · Загрузите или перетащите изображение</div>
+
+<div id="toolbar">
+    <label id="file-label" for="file-input">📁 Загрузить картинку</label>
+    <input type="file" id="file-input" accept="image/*">
+    <button id="reset-btn">🎨 Градиент</button>
+</div>
+
+<script>
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d', { willReadFrequently: true });
+const zoomCanvas = document.getElementById('zoom-canvas');
+const zoomCtx = zoomCanvas.getContext('2d');
+const loupe = document.getElementById('loupe');
+const swatch = document.getElementById('swatch');
+const hexEl = document.getElementById('hex');
+const descEl = document.getElementById('desc');
+const clrNameEl = document.getElementById('clr-name');
+const rgbLine = document.getElementById('rgb-line');
+const statusEl = document.getElementById('status');
+const fileInput = document.getElementById('file-input');
+const resetBtn = document.getElementById('reset-btn');
+
+let imageLoaded = false;
+let currentImage = null;
+let animFrame = null;
+let imageDisplayRect = null;
+
+const ZOOM = 8;
+const GRID = 20;
+const BLOCK = ZOOM;
+
+const namedColors = [
+    {name:'чёрный',r:0,g:0,b:0},{name:'антрацит',r:42,g:44,b:48},
+    {name:'тёмно-серый',r:80,g:80,b:80},{name:'серый',r:130,g:130,b:130},
+    {name:'светло-серый',r:192,g:192,b:192},{name:'белый',r:255,g:255,b:255},
+    {name:'слоновая кость',r:255,g:250,b:235},{name:'айвори',r:255,g:255,b:210},
+    {name:'красный',r:220,g:30,b:30},{name:'алый',r:255,g:50,b:0},
+    {name:'кармин',r:175,g:0,b:30},{name:'бордовый',r:125,g:0,b:0},
+    {name:'вишнёвый',r:150,g:20,b:45},{name:'розовый',r:255,g:175,b:190},
+    {name:'фуксия',r:255,g:0,b:130},{name:'малиновый',r:200,g:20,b:80},
+    {name:'коралловый',r:255,g:120,b:80},{name:'персиковый',r:255,g:215,b:180},
+    {name:'оранжевый',r:255,g:160,b:0},{name:'охра',r:200,g:130,b:40},
+    {name:'терракотовый',r:220,g:120,b:75},{name:'жёлтый',r:255,g:255,b:0},
+    {name:'золотой',r:255,g:210,b:0},{name:'лимонный',r:230,g:255,b:0},
+    {name:'бежевый',r:245,g:240,b:220},{name:'кремовый',r:255,g:250,b:210},
+    {name:'хаки',r:190,g:175,b:140},{name:'оливковый',r:130,g:130,b:0},
+    {name:'салатовый',r:140,g:210,b:60},{name:'зелёный',r:50,g:160,b:50},
+    {name:'изумрудный',r:40,g:180,b:90},{name:'мятный',r:100,g:220,b:160},
+    {name:'бирюзовый',r:40,g:200,b:190},{name:'аквамарин',r:110,g:235,b:205},
+    {name:'голубой',r:170,g:215,b:240},{name:'лазурный',r:30,g:130,b:220},
+    {name:'синий',r:30,g:60,b:220},{name:'ультрамарин',r:25,g:25,b:160},
+    {name:'церелиум',r:0,g:125,b:170},{name:'васильковый',r:100,g:140,b:230},
+    {name:'индиго',r:70,g:0,b:130},{name:'фиолетовый',r:150,g:50,b:200},
+    {name:'пурпурный',r:130,g:0,b:130},{name:'сиреневый',r:200,g:160,b:200},
+    {name:'лавандовый',r:210,g:200,b:240},{name:'шоколадный',r:200,g:120,b:50},
+    {name:'коричневый',r:140,g:80,b:40},{name:'каштановый',r:120,g:70,b:50},
+    {name:'песочный',r:220,g:190,b:140},{name:'светло-бежевый',r:235,g:225,b:195},
+];
+
+function findClosestColor(r,g,b){
+    let min=Infinity,best=namedColors[0];
+    for(const c of namedColors){
+        const d=(c.r-r)**2+(c.g-g)**2+(c.b-b)**2;
+        if(d<min){min=d;best=c;}
+    }
+    return best;
+}
+
+function hslToRgb(h,s,l){
+    h/=360;s/=100;l/=100;
+    if(s===0)return[Math.round(l*255),Math.round(l*255),Math.round(l*255)];
+    const q=l<0.5?l*(1+s):l+s-l*s,p=2*l-q;
+    const hue2rgb=(p,q,t)=>{if(t<0)t+=1;if(t>1)t-=1;if(t<1/6)return p+(q-p)*6*t;if(t<1/2)return q;if(t<2/3)return p+(q-p)*(2/3-t)*6;return p};
+    return[Math.round(hue2rgb(p,q,h+1/3)*255),Math.round(hue2rgb(p,q,h)*255),Math.round(hue2rgb(p,q,h-1/3)*255)];
+}
+
+function drawGradient(){
+    const w=canvas.width,h=canvas.height;imageLoaded=false;imageDisplayRect=null;
+    const bands=120;
+    for(let i=0;i<bands;i++){
+        const hue=(i/bands)*360,x1=Math.floor((i/bands)*w),x2=Math.ceil(((i+1)/bands)*w);
+        const g=ctx.createLinearGradient(x1,0,x2,0);
+        const[r1,g1,b1]=hslToRgb(hue,100,50),[r2,g2,b2]=hslToRgb(hue+360/bands,100,50);
+        g.addColorStop(0,`rgb(${r1},${g1},${b1})`);g.addColorStop(1,`rgb(${r2},${g2},${b2})`);
+        ctx.fillStyle=g;ctx.fillRect(x1,0,x2-x1+1,h);
+    }
+    const d=ctx.createLinearGradient(0,0,0,h);
+    d.addColorStop(0,'rgba(0,0,0,0.75)');d.addColorStop(0.35,'rgba(0,0,0,0)');
+    d.addColorStop(0.65,'rgba(255,255,255,0)');d.addColorStop(1,'rgba(255,255,255,0.75)');
+    ctx.fillStyle=d;ctx.fillRect(0,0,w,h);
+}
+
+function drawImageOnCanvas(img){
+    const dpr=window.devicePixelRatio||1;
+    const cw=window.innerWidth,ch=window.innerHeight;
+    const iw=img.naturalWidth,ih=img.naturalHeight;
+    const scale=Math.min(cw/iw,ch/ih,1);
+    const dw=iw*scale,dh=ih*scale;
+    const dx=(cw-dw)/2,dy=(ch-dh)/2;
+
+    ctx.fillStyle='#14141e';ctx.fillRect(0,0,cw*dpr,ch*dpr);
+    ctx.save();ctx.scale(dpr,dpr);
+    ctx.drawImage(img,dx,dy,dw,dh);
+    ctx.restore();
+
+    imageDisplayRect={x:dx,y:dy,w:dw,h:dh,scale:scale};
+    return imageDisplayRect;
+}
+
+function resizeCanvas(){
+    const dpr=window.devicePixelRatio||1;
+    const w=window.innerWidth,h=window.innerHeight;
+    canvas.width=w*dpr;canvas.height=h*dpr;
+    canvas.style.width=w+'px';canvas.style.height=h+'px';
+    ctx.setTransform(dpr,0,0,dpr,0,0);
+    if(!imageLoaded||!currentImage)drawGradient();
+    else drawImageOnCanvas(currentImage);
+}
+
+function loadImageFile(file){
+    const r=new FileReader();
+    r.onload=function(e){
+        const img=new Image();
+        img.onload=function(){
+            currentImage=img;imageLoaded=true;
+            drawImageOnCanvas(img);
+            statusEl.style.opacity='0';
+        };
+        img.src=e.target.result;
+    };
+    r.readAsDataURL(file);
+}
+
+function describeColor(r,g,b){
+    const hex='#'+[r,g,b].map(v=>v.toString(16).padStart(2,'0').toUpperCase()).join('');
+    if(r===0&&g===0&&b===0)return{hex,desc:'чёрный 100%'};
+    if(r===g&&g===b){
+        const p=Math.round(r/255*100);
+        if(r<20)return{hex,desc:`чёрный ${100-p}%`};
+        if(r>235)return{hex,desc:`белый ${p}%`};
+        return{hex,desc:`серый ${p}%`};
+    }
+    const w=Math.min(r,g,b),r1=r-w,g1=g-w,b1=b-w,t=w+r1+g1+b1;
+    const p=[];
+    if(w>0){const x=Math.round(w/t*100);if(x>0)p.push(x+'% <span class="cn">белый</span>')}
+    if(r1>0){const x=Math.round(r1/t*100);if(x>0)p.push(x+'% <span class="cn">красный</span>')}
+    if(g1>0){const x=Math.round(g1/t*100);if(x>0)p.push(x+'% <span class="cn">зелёный</span>')}
+    if(b1>0){const x=Math.round(b1/t*100);if(x>0)p.push(x+'% <span class="cn">синий</span>')}
+    return{hex,desc:p.join(' + ')};
+}
+
+function getPixelColor(cx,cy){
+    const dpr=window.devicePixelRatio||1;
+    const px=Math.round(cx*dpr),py=Math.round(cy*dpr);
+    if(px<0||py<0||px>=canvas.width||py>=canvas.height)return null;
+    const d=ctx.getImageData(px,py,1,1).data;
+    return{r:d[0],g:d[1],b:d[2]};
+}
+
+function drawLoupe(cx,cy){
+    const dpr=window.devicePixelRatio||1;
+    const pcx=Math.round(cx*dpr),pcy=Math.round(cy*dpr);
+    const half=Math.floor(GRID/2);
+    let sx=pcx-half,sy=pcy-half;
+    sx=Math.max(0,Math.min(canvas.width-GRID,sx));
+    sy=Math.max(0,Math.min(canvas.height-GRID,sy));
+
+    const data=ctx.getImageData(sx,sy,GRID,GRID).data;
+    zoomCanvas.width=GRID*BLOCK;zoomCanvas.height=GRID*BLOCK;
+    for(let row=0;row<GRID;row++){
+        for(let col=0;col<GRID;col++){
+            const i=(row*GRID+col)*4;
+            zoomCtx.fillStyle=`rgb(${data[i]},${data[i+1]},${data[i+2]})`;
+            zoomCtx.fillRect(col*BLOCK,row*BLOCK,BLOCK,BLOCK);
+        }
+    }
+    const cx2=half*BLOCK,cy2=half*BLOCK;
+    zoomCtx.strokeStyle='rgba(255,255,255,0.7)';zoomCtx.lineWidth=1.5;
+    zoomCtx.beginPath();zoomCtx.moveTo(cx2,0);zoomCtx.lineTo(cx2,zoomCanvas.height);zoomCtx.stroke();
+    zoomCtx.beginPath();zoomCtx.moveTo(0,cy2);zoomCtx.lineTo(zoomCanvas.width,cy2);zoomCtx.stroke();
+    zoomCtx.strokeStyle='rgba(0,0,0,0.5)';zoomCtx.lineWidth=1;
+    zoomCtx.strokeRect(cx2-BLOCK/2,cy2-BLOCK/2,BLOCK,BLOCK);
+
+    return{sx,sy};
+}
+
+function updateOverlay(x,y){
+    const color=getPixelColor(x,y);
+    if(!color){loupe.classList.remove('show');return;}
+    const{r,g,b}=color,{hex,desc}=describeColor(r,g,b);
+    const near=findClosestColor(r,g,b);
+
+    swatch.style.background=hex;
+    hexEl.textContent=hex.toLowerCase();
+    clrNameEl.textContent='\u2192 '+near.name;
+    descEl.innerHTML=desc;
+    rgbLine.textContent='R:'+r+' G:'+g+' B:'+b;
+
+    drawLoupe(x,y);
+
+    const lw=220,pad=24;
+    let tx=x+20,ty=y+20;
+    if(tx+220+pad>window.innerWidth)tx=x-220-pad;
+    if(ty+300+pad>window.innerHeight)ty=y-300-pad;
+    if(tx<pad)tx=pad;if(ty<pad)ty=pad;
+    loupe.style.left=tx+'px';loupe.style.top=ty+'px';
+    loupe.classList.add('show');
+}
+
+canvas.addEventListener('mousemove',function(e){
+    if(animFrame)cancelAnimationFrame(animFrame);
+    animFrame=requestAnimationFrame(()=>updateOverlay(e.clientX,e.clientY));
+});
+
+canvas.addEventListener('mouseleave',function(){loupe.classList.remove('show');});
+
+fileInput.addEventListener('change',function(e){
+    if(e.target.files&&e.target.files[0])loadImageFile(e.target.files[0]);
+    this.value='';
+});
+
+resetBtn.addEventListener('click',function(){
+    currentImage=null;imageLoaded=false;drawGradient();
+    statusEl.style.opacity='1';
+});
+
+canvas.addEventListener('dragover',function(e){e.preventDefault();canvas.style.opacity='0.7';});
+canvas.addEventListener('dragleave',function(e){e.preventDefault();canvas.style.opacity='1';});
+canvas.addEventListener('drop',function(e){
+    e.preventDefault();canvas.style.opacity='1';
+    const f=e.dataTransfer.files[0];
+    if(f&&f.type.startsWith('image/'))loadImageFile(f);
+});
+
+window.addEventListener('resize',resizeCanvas);
+resizeCanvas();
+</script>
+</body>
+</html>
